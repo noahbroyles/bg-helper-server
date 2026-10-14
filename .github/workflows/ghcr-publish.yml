@@ -1,0 +1,64 @@
+name: Publish to GHCR
+
+# Publishes a multi-architecture image to ghcr.io/<owner>/<repo>, using only the built in GITHUB_TOKEN (no secrets to configure).
+on:
+    push:
+        paths-ignore:
+            - "**.md"
+        branches:
+            - main
+    # Allows publishing by hand from the Actions tab.
+    workflow_dispatch:
+
+# A newer run replaces an older one, so that the latest tag cannot end up pointing at an older build.
+concurrency:
+    group: ghcr-publish-${{ github.ref }}
+    cancel-in-progress: true
+
+# The default token is read only, so the publish job below asks for packages: write on its own.
+permissions:
+    contents: read
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v6
+            # GHCR rejects uppercase letters in image names.
+            - name: Compute image name
+              id: image
+              run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+            # The Dockerfile runs bun install and bun build, which the arm64 image does under QEMU.
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v4
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v4
+            - name: Login to GHCR
+              uses: docker/login-action@v4
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+            # Tags the image with latest (default branch only) and with the commit, such as sha-1a2b3c4.
+            - name: Extract metadata
+              id: meta
+              uses: docker/metadata-action@v6
+              with:
+                  images: ${{ steps.image.outputs.name }}
+                  tags: |
+                      type=raw,value=latest,enable={{is_default_branch}}
+                      type=sha
+            - name: Build and push
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: ./Dockerfile
+                  platforms: linux/amd64,linux/arm64
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max

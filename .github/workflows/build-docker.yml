@@ -9,6 +9,8 @@ on:
 
 jobs:
     build-docker-image:
+        # This workflow pushes to Docker Hub with upstream's secrets, so forks skip it and publish to GHCR instead (ghcr-publish.yml).
+        if: github.repository == 'TeamPiped/bg-helper-server'
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v6
